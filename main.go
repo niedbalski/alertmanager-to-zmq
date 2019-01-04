@@ -1,13 +1,13 @@
 package main
 
 import (
-	zmq "github.com/pebbe/zmq4"
-	"os"
-	"fmt"
-	"flag"
-	"net/http"
-	"log"
 	"encoding/json"
+	"flag"
+	"fmt"
+	zmq "github.com/pebbe/zmq4"
+	"log"
+	"net/http"
+	"os"
 )
 
 //HookMessage is the message we receive from Alertmanager
@@ -44,49 +44,51 @@ func main() {
 
 	flag.Parse()
 
-	go func(ch chan <- HookMessage) {
-		go func(ch <- chan HookMessage, topic string) {
+	go func(ch chan<- HookMessage) {
+
+		go func(ch <-chan HookMessage, topic string) {
+
 			publisher, _ := zmq.NewSocket(zmq.PUB)
 			defer publisher.Close()
-
 			publisher.Bind(*pubaddr)
 
 			for {
 				select {
-				case message := <- pubsub: {
-					encoded, err := json.Marshal(message)
-					if err != nil {
-						fmt.Println("failed")
-						continue
-					}
-					publisher.Send(topic, zmq.SNDMORE)
-					publisher.Send(string(encoded), 0)
+				case message := <-pubsub:
+					{
+						encoded, err := json.Marshal(message)
+						if err != nil {
+							fmt.Println("failed")
+							continue
+						}
+						publisher.Send(topic, zmq.SNDMORE)
+						publisher.Send(string(encoded), 0)
 					}
 				}
 			}
 
-		} (pubsub, "alerts")
+		}(pubsub, "alerts")
 
 		http.HandleFunc("/alerts", func(writer http.ResponseWriter, request *http.Request) {
 			switch request.Method {
-			case http.MethodPost: {
-				dec := json.NewDecoder(request.Body)
-				defer request.Body.Close()
-				var message HookMessage
-				if err := dec.Decode(&message); err != nil {
-					log.Printf("error decoding message: %v", err)
-					http.Error(writer, "invalid request body", 400)
-					return
+			case http.MethodPost:
+				{
+					dec := json.NewDecoder(request.Body)
+					defer request.Body.Close()
+					var message HookMessage
+					if err := dec.Decode(&message); err != nil {
+						log.Printf("error decoding message: %v", err)
+						http.Error(writer, "invalid request body", 400)
+						return
+					}
+					ch <- message
 				}
-				ch <- message
-			}
 			default:
 				http.Error(writer, "unsupported HTTP method", 400)
 			}
 		})
 
-	} (pubsub)
+	}(pubsub)
 
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
-

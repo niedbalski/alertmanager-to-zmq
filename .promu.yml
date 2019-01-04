@@ -1,0 +1,21 @@
+go:
+    # Whenever the Go version is updated here, .circle/config.yml should also
+    # be updated.
+    version: 1.11
+repository:
+    path: github.com/niedbalski/alertmanager-to-zmq
+build:
+    flags: -a -tags 'netgo static_build'
+    extldflags: 
+      - -L/usr/lib
+      - -L/usr/local/lib 
+      - -lunwind -lzmq -lpthread -lsodium -lrt -lstdc++ -lm -lc -lgcc -llzma -ldl -Wl,-allow-multiple-definition 
+      - -static
+tarball:
+    files:
+        - LICENSE
+
+crossbuild:
+    platforms:
+        - linux/amd64
+        - linux/arm64

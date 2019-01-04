@@ -3,7 +3,8 @@ package main
 import (
 	zmq "github.com/pebbe/zmq4"
 )
-func main()() {
+
+func main() {
 	subscriber, _ := zmq.NewSocket(zmq.SUB)
 	defer subscriber.Close()
 	subscriber.Connect("tcp://localhost:5563")
