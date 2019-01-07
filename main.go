@@ -31,64 +31,59 @@ type Alert struct {
 	EndsAt      string            `json:"EndsAt,omitempty"`
 }
 
+var addr = flag.String("addr", ":9098", "address to listen for webhook")
+var pubaddr = flag.String("publisher", "tcp://*:5563", "address fot the publish socket")
+var topic = flag.String("topic", "alerts", "default zmq topic to publish hook messages")
+var endpoint = flag.String("endpoint", "/alerts", "default http endpoint for alertmanager")
+var pubsub = make(chan HookMessage)
+
 func die(format string, v ...interface{}) {
 	fmt.Fprintln(os.Stderr, fmt.Sprintf(format, v...))
 	os.Exit(1)
 }
 
+func SendHookMessageToPublisher(topic string) {
+	publisher, _ := zmq.NewSocket(zmq.PUB)
+	defer publisher.Close()
+	publisher.Bind(*pubaddr)
+
+	for {
+		select {
+		case hookMessage := <-pubsub:
+			{
+				encoded, err := json.Marshal(hookMessage)
+				if err != nil {
+					// TODO: add a error log
+					continue
+				}
+				publisher.Send(topic, zmq.SNDMORE)
+				publisher.Send(string(encoded), 0)
+			}
+		}
+	}
+}
+
+func ReceiveHookMessageFromAlertManager(writer http.ResponseWriter, request *http.Request) {
+	switch request.Method {
+	case http.MethodPost:
+		{
+			var message HookMessage
+			err := json.NewDecoder(request.Body).Decode(&message)
+			if err != nil {
+				http.Error(writer, err.Error(), 400)
+				return
+			}
+			defer request.Body.Close()
+			pubsub <- message
+		}
+	default:
+		http.Error(writer, "unsupported HTTP method", 400)
+	}
+}
+
 func main() {
-	pubsub := make(chan HookMessage)
-
-	addr := flag.String("addr", ":9098", "address to listen for webhook")
-	pubaddr := flag.String("publisher", "tcp://*:5563", "address fot the publish socket")
-
 	flag.Parse()
-
-	go func(ch chan<- HookMessage) {
-
-		go func(ch <-chan HookMessage, topic string) {
-
-			publisher, _ := zmq.NewSocket(zmq.PUB)
-			defer publisher.Close()
-			publisher.Bind(*pubaddr)
-
-			for {
-				select {
-				case message := <-pubsub:
-					{
-						encoded, err := json.Marshal(message)
-						if err != nil {
-							fmt.Println("failed")
-							continue
-						}
-						publisher.Send(topic, zmq.SNDMORE)
-						publisher.Send(string(encoded), 0)
-					}
-				}
-			}
-
-		}(pubsub, "alerts")
-
-		http.HandleFunc("/alerts", func(writer http.ResponseWriter, request *http.Request) {
-			switch request.Method {
-			case http.MethodPost:
-				{
-					dec := json.NewDecoder(request.Body)
-					defer request.Body.Close()
-					var message HookMessage
-					if err := dec.Decode(&message); err != nil {
-						log.Printf("error decoding message: %v", err)
-						http.Error(writer, "invalid request body", 400)
-						return
-					}
-					ch <- message
-				}
-			default:
-				http.Error(writer, "unsupported HTTP method", 400)
-			}
-		})
-
-	}(pubsub)
-
+	go SendHookMessageToPublisher(*topic)
+	go http.HandleFunc(*endpoint, ReceiveHookMessageFromAlertManager)
 	log.Fatal(http.ListenAndServe(*addr, nil))
 }
