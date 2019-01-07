@@ -99,7 +99,7 @@ jobs:
 
 workflows:
   version: 2
-  openstack_exporter:
+  alertmanager_to_zmq:
     jobs:
     - test:
         filters:
